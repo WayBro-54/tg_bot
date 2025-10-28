@@ -13,4 +13,4 @@ COPY . .
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "bot/MainBot.py"]
+CMD ["python", "tg_bot/MainBot.py"]
