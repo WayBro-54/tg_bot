@@ -1764,8 +1764,10 @@ async def buy_when_contact_handler(message: types.Message, state: FSMContext):
 # Запуск бота
 # =======================
 from aiogram import executor
+
 from db import engine, SessionLocal, Base
 from models import Submission
+
 
 # =======================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -1903,4 +1905,4 @@ async def publish_sell(submission: dict):
         raise
 
 if __name__ == "__main__":
-    executor.start_polling()
+    executor.start_polling(dispatcher=dp)
