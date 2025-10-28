@@ -1764,49 +1764,8 @@ async def buy_when_contact_handler(message: types.Message, state: FSMContext):
 # Запуск бота
 # =======================
 from aiogram import executor
-from aiohttp import web
 from db import engine, SessionLocal, Base
 from models import Submission
-
-# Webhook конфигурация
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "localhost")
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = f"https://{WEBHOOK_HOST}{WEBHOOK_PATH}"
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 8080))
-
-
-async def on_startup(dp):
-    """Вызывается при запуске бота"""
-    try:
-        # ✅ Создаём таблицы в БД
-        Base.metadata.create_all(bind=engine)
-        logger.info("✅ Таблицы БД инициализированы")
-
-        await bot.set_webhook(WEBHOOK_URL)
-        logger.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
-    except Exception as e:
-        logger.exception(f"❌ Ошибка при запуске: {e}")
-
-async def on_shutdown(dp):
-    """Вызывается при остановке бота"""
-    try:
-        await bot.delete_webhook()
-        logger.info("✅ Webhook удалён")
-    except Exception as e:
-        logger.exception(f"❌ Ошибка при удалении webhook: {e}")
-
-
-async def handle_webhook(request):
-    """Обработчик webhook запросов от Telegram"""
-    try:
-        update = await request.json()
-        await dp.feed_update(bot, types.Update(**update))
-        return web.Response(text="OK")
-    except Exception as e:
-        logger.exception(f"❌ Ошибка в handle_webhook: {e}")
-        return web.Response(text="ERROR", status=500)
-
 
 # =======================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -1944,15 +1903,4 @@ async def publish_sell(submission: dict):
         raise
 
 if __name__ == "__main__":
-    app = web.Application()
-    app.router.add_post(WEBHOOK_PATH, handle_webhook)
-
-    executor.start_webhook(
-        dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host=WEBAPP_HOST,
-        port=WEBAPP_PORT,
-        skip_updates=True
-    )
+    executor.start_polling()
