@@ -3,7 +3,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-from tg_bot import init_db
+from init_db import init_db
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1906,8 +1906,12 @@ async def publish_sell(submission: dict):
         logger.exception(f"❌ Ошибка при публикации объявления: {e}")
         raise
 
+
+async def on_startup(dispatcher):
+    await init_db()
+
 if __name__ == "__main__":
     executor.start_polling(
         dispatcher=dp,
-        startup=init_db,
+        on_startup=on_startup,
     )

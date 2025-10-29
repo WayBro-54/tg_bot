@@ -10,14 +10,13 @@ from models import Submission  # ✅ ВАЖНО: импортируйте мод
 
 async def init_db():
     """Создаёт все таблицы в БД, если файл БД не существует."""
-    try:
-        # Получаем путь к файлу БД из URL подключения
-        db_url = engine.url.database
+    db_url = engine.url.database
 
-        # Проверяем существование файла БД
-        if os.path.exists(db_url):
-            print(f"✅ Файл базы данных '{db_url}' уже существует. База данных не будет пересоздана.")
-            return
+    # Проверяем существование файла БД
+    if os.path.exists(db_url):
+        print(f"✅ Файл базы данных '{db_url}' уже существует. База данных не будет пересоздана.")
+        return
+    try:
 
         # Если файла нет, создаём все таблицы
         async with engine.begin() as conn:
