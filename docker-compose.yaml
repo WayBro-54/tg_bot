@@ -6,3 +6,5 @@ services:
     volumes:
       - ./submissions.db:/app/submissions.db
       - ./MainBot.py:/app/MainBot.py
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///submissions.db
