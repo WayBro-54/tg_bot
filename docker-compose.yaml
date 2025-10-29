@@ -1,0 +1,8 @@
+services:
+
+  tg_bot:
+    build:
+      context: .
+    volumes:
+      - submissions.db/:app/submissions.db
+      - MainBot.py:app/MainBot.py

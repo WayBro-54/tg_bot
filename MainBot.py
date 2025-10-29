@@ -3,6 +3,8 @@ import sys
 import os
 from dotenv import load_dotenv
 
+from tg_bot import init_db
+
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -1905,4 +1907,7 @@ async def publish_sell(submission: dict):
         raise
 
 if __name__ == "__main__":
-    executor.start_polling(dispatcher=dp)
+    executor.start_polling(
+        dispatcher=dp,
+        startup=init_db,
+    )
