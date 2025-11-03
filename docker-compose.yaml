@@ -1,10 +1,48 @@
-services:
 
+services:
   tg_bot:
     build:
       context: .
     volumes:
       - ./submissions.db:/app/submissions.db
       - ./MainBot.py:/app/MainBot.py
+    networks:
+      - redis_network
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-persistent
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - redis_network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///submissions.db
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - redis_network
+
+volumes:
+  redis_data:
+    driver: local
+  redis_insight_data:
+    driver: local
+
+networks:
+  redis_network:
+    driver: bridge

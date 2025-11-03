@@ -3,7 +3,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-from init_db import init_db
+# from init_db import init_db
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -12,7 +12,7 @@ import logging
 import html
 import uuid
 import json
-import time
+
 from typing import List, Optional, Dict, Any
 
 from aiogram.dispatcher import FSMContext
@@ -23,7 +23,9 @@ from aiogram.types import (
     InputMediaPhoto, InputMediaVideo, ParseMode
 )
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from redis_db import RedisClient
 
+redis_client = RedisClient()
 # ✅ КОНСТАНТЫ
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
@@ -52,10 +54,10 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
 # ✅ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
-pending_submissions: Dict[str, Dict[str, Any]] = {}
-mod_rejection_state: Dict[int, str] = {}
-referral_data: Dict[int, Dict] = {}
-referral_invites: Dict[int, list] = {}
+# pending_submissions: Dict[str, Dict[str, Any]] = {}
+# mod_rejection_state: Dict[int, str] = {}
+# referral_data: Dict[int, Dict] = {}
+# referral_invites: Dict[int, list] = {}
 
 # ✅ FSM STATES
 class SellStates(StatesGroup):
@@ -248,8 +250,9 @@ async def cmd_start(message: types.Message):
                         reply_markup=make_start_keyboard()
                     )
                     return  # ✅ ДОБАВЛЕНО: выход после обработки
-
-                if user_id in referral_data:
+                referral_data = await redis_client.redis_client.keys('referral_data')
+                
+                if f'referral_data_{user_id}' in referral_data:
                     await message.answer(
                         "Вы уже помогли кому-то получить бонус! 🎁\n\n"
                         "Хотите разместить своё объявление?",
@@ -267,13 +270,18 @@ async def cmd_start(message: types.Message):
                     return  # ✅ ДОБАВЛЕНО: выход после обработки
 
                 # ✅ Регистрируем реферальную связь
-                referral_data[user_id] = {"invited_by": referrer_id}
+                await redis_client.redis_client.set(
+                    f'referral_data_{user_id}',
+                    json.dumps(
+                        {"invited_by": referrer_id}
+                    )
+                )
+                # referral_data[user_id] = {"invited_by": referrer_id}
 
-                if referrer_id not in referral_invites:
-                    referral_invites[referrer_id] = []
-                referral_invites[referrer_id].append(user_id)
+                await redis_client.redis_client.rpush(f'referral_invites_{referrer_id}', f'{user_id}')
+                referral_lst = await redis_client.redis_client.get(f'referral_invites_{referrer_id}')
 
-                count = len(referral_invites[referrer_id])
+                count = len(referral_lst)
 
                 # ✅ Уведомляем реферера о новом приглашении
                 try:
@@ -1175,8 +1183,8 @@ async def noagent_choice(callback_query: types.CallbackQuery, state: FSMContext)
         )
 
         # Инициализируем счётчик приглашений
-        if user_id not in referral_invites:
-            referral_invites[user_id] = []
+        # if user_id not in referral_invites:
+        #     referral_invites[user_id] = []
 
         await bot.send_message(
             user_id,
@@ -1311,7 +1319,9 @@ async def invite_sent(callback_query: types.CallbackQuery, state: FSMContext):
 
     # Иначе (ветка без посредничества) — работаем по старой логике с фактическим счётом
     if data.get("waiting_for_invites"):
-        count = len(referral_invites.get(user_id, []))
+        referral_invites = await redis_client.redis_client.get(f'referral_invites_{user_id}')
+        # count = len(referral_invites.get(user_id, []))
+        count = len(referral_invites)
         if count < 5:
             await bot.send_message(
                 user_id,
@@ -1360,44 +1370,48 @@ async def finalize_and_send_to_moderation(user_id: int, state: FSMContext, invit
     session = None
     try:
         data = await state.get_data()
-        local_id = str(uuid.uuid4())
+        local_id = uuid.uuid4()
 
         # ✅ СОХРАНЯЕМ В БД (асинхронно)
-        session = SessionLocal()
-        try:
-            submission = Submission(
-                id=local_id,
-                user_id=user_id,
-                type="sell",
-                data=json.dumps(data),
-                invited=invited,
-                rejected_all=data.get("rejected_all", False),
-                status="pending"
-            )
-            session.add(submission)
-            session.commit()
-            logger.info(f"✅ Объявление {local_id} сохранено в БД")
-        except Exception as db_error:
-            session.rollback()
-            logger.exception(f"❌ Ошибка сохранения в БД: {db_error}")
-            await bot.send_message(
-                user_id,
-                "❌ Ошибка при сохранении объявления. Попробуйте позже."
-            )
-            return
-        finally:
-            if session is not None:
-                session.close()
+        # session = SessionLocal()
+        # try:
+
+        await redis_client.redis_client.set(
+            f'submission_{local_id}',
+            json.dumps({
+                'user_id': user_id,
+                'type': 'sell',
+                'data': data,
+                'invited': invited,
+                'rejected_all': data.get("rejected_all", False),
+                'status': 'pending'
+            })
+        )
+        # except Exception as db_error:
+        #     session.rollback()
+        #     logger.exception(f"❌ Ошибка сохранения в БД: {db_error}")
+        #     await bot.send_message(
+        #         user_id,
+        #         "❌ Ошибка при сохранении объявления. Попробуйте позже."
+        #     )
+        #     return
+        # finally:
+        #     if session is not None:
+        #         session.close()
 
         # ✅ СОХРАНЯЕМ В ПАМЯТИ (для быстрого доступа модератора)
-        pending_submissions[local_id] = {
-            "user_id": user_id,
-            "data": data,
-            "invited": invited,
-            "type": "sell",
-            "status": "pending"
-        }
-
+        await redis_client.redis_client.set(
+            f'pending_submissions_{local_id}',
+            json.dumps(
+                {
+                "user_id": user_id,
+                "data": data,
+                "invited": invited,
+                "type": "sell",
+                "status": "pending"
+                }
+            )
+        )
         # ✅ Формируем текст для модератора
         preview_text = build_sell_preview(data)
 
@@ -1566,53 +1580,52 @@ async def mod_publish(callback_query: types.CallbackQuery):
             return
 
         local_id = parts[2]
-        submission = pending_submissions.get(local_id)
-
+        # submission = pending_submissions.get(local_id)
+        submission = await redis_client.redis_client.get(f'pending_submissions_{local_id}')
         if not submission:
             await callback_query.answer("❌ Заявка не найдена или уже обработана.")
             return
 
+
+
+
         # ✅ Получаем сессию БД
-        session = SessionLocal()  # ✅ Теперь session имеет правильный тип
+        # session = SessionLocal()  # ✅ Теперь session имеет правильный тип
+        db_submission = await redis_client.redis_client.get(f'submission_{local_id}')
 
-        try:
             # ✅ Обновляем статус в БД
-            db_submission = session.query(Submission).filter(
-                Submission.id == local_id
-            ).first()
+            # db_submission = session.query(Submission).filter(
+            #     Submission.id == local_id
+            # ).first()
 
-            if not db_submission:
-                await callback_query.answer("❌ Заявка не найдена в БД")
-                return
-
-            db_submission.status = "published"
-            session.commit()
-            logger.info(f"✅ Статус заявки {local_id} обновлён на 'published' в БД")
-
-        except Exception as db_error:
-            session.rollback()
-            logger.exception(f"❌ Ошибка обновления БД: {db_error}")
-            await callback_query.answer("❌ Ошибка при обновлении статуса в БД")
+        if not db_submission:
+            await callback_query.answer("❌ Заявка не найдена в БД")
             return
-        finally:
-            session.close()  # ✅ Закрываем внутреннюю сессию
+        submission_dict = json.loads(db_submission)
+        submission_dict['status'] = "published"
+
+        await redis_client.redis_client.set(
+            f'submission_{local_id}',
+            json.dumps(submission_dict)
+        )
+
 
         # ✅ Публикуем в канал
-        if submission["type"] == "sell":
+        if submission_dict["type"] == "sell":
             try:
-                await publish_sell(submission)
+                await publish_sell(submission_dict)
                 logger.info(f"✅ Объявление {local_id} опубликовано в канал")
             except Exception as pub_error:
                 logger.exception(f"❌ Ошибка публикации объявления {local_id}: {pub_error}")
                 await callback_query.answer("❌ Ошибка при публикации объявления")
                 return
 
-        elif submission["type"] == "buy":
+        elif submission_dict["type"] == "buy":
             await callback_query.answer("⚠️ Публикация заявок покупателей не поддерживается в общий канал.")
             return
 
         # ✅ Уведомляем продавца/покупателя
-        user_id = submission.get("user_id")
+        user_id = submission_dict.get("user_id")
         if user_id:
             try:
                 await bot.send_message(
@@ -1627,7 +1640,7 @@ async def mod_publish(callback_query: types.CallbackQuery):
                 logger.exception(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: {msg_error}")
 
         # ✅ Удаляем из памяти (pending_submissions)
-        pending_submissions.pop(local_id, None)
+        await redis_client.redis_client.delete(f'pending_submissions_{local_id}')
         logger.info(f"✅ Заявка {local_id} удалена из очереди pending_submissions")
 
         # ✅ Уведомляем модератора
@@ -1654,13 +1667,14 @@ async def mod_publish(callback_query: types.CallbackQuery):
 async def mod_reject(callback_query: types.CallbackQuery):
     try:
         _, _, local_id = callback_query.data.split(":")
-        submission = pending_submissions.get(local_id)
+        submission = await redis_client.redis_client.get(f'pending_submissions_{local_id}')
         if not submission:
             await callback_query.answer("Заявка не найдена или уже обработана.")
             return
 
         mod_id = callback_query.from_user.id
-        mod_rejection_state[mod_id] = local_id
+        await redis_client.redis_client.set(f'mod_rejection_state_{mod_id}', f'{local_id}')
+        # mod_rejection_state[mod_id] = local_id
 
         # ✅ ИСПРАВЛЕНО: правильное получение FSMContext для модератора
         state_proxy = dp.current_state(chat=mod_id, user=mod_id)
@@ -1684,17 +1698,19 @@ async def mod_reason_input(message: types.Message, state: FSMContext):
     # ✅ ЛОГИРОВАНИЕ для отладки
     logger.info(f"[MOD_REASON] Модератор {mod_id} ввёл причину: {reason[:50]}...")
 
-    local_id = mod_rejection_state.get(mod_id)
+    # local_id = mod_rejection_state.get(mod_id)
+    local_id = await redis_client.redis_client.get(f'mod_rejection_state_{mod_id}')
     if not local_id:
         await message.answer("❌ Не найдена заявка для отклонения. Попробуйте снова.")
         await state.finish()
         return
 
-    submission = pending_submissions.get(local_id)
+    submission = await redis_client.redis_client.get(f'pending_submissions{local_id}')
     if not submission:
         await message.answer("❌ Заявка уже обработана или не найдена.")
         await state.finish()
-        mod_rejection_state.pop(mod_id, None)
+        # mod_rejection_state.pop(mod_id, None)
+        await redis_client.redis_client.delete(f'mod_rejection_state_{mod_id}', )
         return
 
     # ✅ Отправляем причину отклонения пользователю
@@ -1708,8 +1724,8 @@ async def mod_reason_input(message: types.Message, state: FSMContext):
         logger.exception(f"Ошибка отправки причины отклонения пользователю {submission['user_id']}: {e}")
 
     # ✅ Удаляем заявку из очереди
-    pending_submissions.pop(local_id, None)
-    mod_rejection_state.pop(mod_id, None)
+    await redis_client.redis_client.delete(f'pending_submissions_{local_id}')
+    await redis_client.redis_client.delete(f'mod_rejection_state_{mod_id}')
 
     # ✅ Уведомляем модератора
     await message.answer(f"✅ Заявка {local_id} отклонена. Причина отправлена пользователю.")
@@ -1765,10 +1781,7 @@ async def buy_when_contact_handler(message: types.Message, state: FSMContext):
 # =======================
 # Запуск бота
 # =======================
-from aiogram import executor
 
-from db import engine, SessionLocal, Base
-from models import Submission
 
 
 # =======================
@@ -1907,11 +1920,11 @@ async def publish_sell(submission: dict):
         raise
 
 
-async def on_startup(dispatcher):
-    await init_db()
+# async def on_startup(dispatcher):
+#     await init_db()
 
 if __name__ == "__main__":
     executor.start_polling(
         dispatcher=dp,
-        on_startup=on_startup,
+        # on_startup=on_startup,
     )
