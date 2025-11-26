@@ -1,7 +1,24 @@
-
 import sys
 import os
 from dotenv import load_dotenv
+
+from tg_bot.constants import CATEGORIES
+from tg_bot.keyboards.markup import (
+
+    make_mod_inline,
+    make_confirm_agent_keyboard,
+    make_categories_keyboard,
+    make_done_back_restart_keyboard,
+    make_skip_back_restart_keyboard,
+    make_restart_only_keyboard,
+    make_back_restart_keyboard,
+    make_ready_keyboard,
+    make_subscribe_keyboard,
+    make_start_keyboard,
+
+)
+from tg_bot.states import SellStates, BuyStates, ModStates
+from tg_bot.utils import check_subscription, safe_int, escape_html, format_number
 
 # from init_db import init_db
 
@@ -17,9 +34,8 @@ from typing import List, Optional, Dict, Any
 
 from aiogram.dispatcher import FSMContext
 from aiogram import Bot, Dispatcher, types, executor
-from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import (
-    InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove,
+    InlineKeyboardMarkup, InlineKeyboardButton,
     InputMediaPhoto, InputMediaVideo, ParseMode
 )
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -32,17 +48,8 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 MOD_CHAT_ID = int(os.getenv("MOD_CHAT_ID"))
 MAX_PHOTOS = 10
 AGENT_CONTACT = "@Ultanovr"
+CHANNEL_USERNAME = "goodbiz54"  # Без @
 
-CATEGORIES = {
-    "1": "Услуги",
-    "2": "Пункты выдачи",
-    "3": "Бьюти",
-    "4": "Розница",
-    "5": "Производство",
-    "6": "Общепит",
-    "7": "Опт",
-    "8": "IT",
-}
 
 # ✅ ЛОГИРОВАНИЕ
 logging.basicConfig(level=logging.INFO)
@@ -53,330 +60,104 @@ bot = Bot(token=TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# ✅ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
-# pending_submissions: Dict[str, Dict[str, Any]] = {}
-# mod_rejection_state: Dict[int, str] = {}
-# referral_data: Dict[int, Dict] = {}
-# referral_invites: Dict[int, list] = {}
-
-# ✅ FSM STATES
-class SellStates(StatesGroup):
-    SELL_TITLE = State()
-    SELL_PROFIT = State()
-    SELL_MARKETING = State()
-    SELL_EMPLOYEES = State()
-    SELL_PREMISES = State()
-    SELL_INCLUDED = State()
-    SELL_EXTRA = State()
-    SELL_TABLE = State()
-    SELL_PHOTOS = State()
-    SELL_CITY = State()
-    SELL_ADDRESS = State()
-    SELL_PRICE = State()
-    SELL_CATEGORY = State()
-    SELL_AGENT_CONFIRM = State()
-    SELL_CONTACT_AGENT = State()
-    SELL_PREVIEW = State()
-
-class BuyStates(StatesGroup):
-    BUY_BUDGET = State()
-    BUY_CITY = State()
-    BUY_CATEGORY = State()
-    BUY_EXPERIENCE = State()
-    BUY_PHONE = State()
-    BUY_WHEN_CONTACT = State()
-
-class ModStates(StatesGroup):
-    MOD_REASON = State()
-
-# ✅ ФУНКЦИИ ПОМОЩНИКИ
-def escape_html(text: str) -> str:
-    """Экранирует HTML для Telegram"""
-    return html.escape(str(text))
-
-def format_number(value) -> str:
-    """Форматирует число с пробелами"""
-    try:
-        num = int(value)
-        return f"{num:,}".replace(",", " ")
-    except (ValueError, TypeError):
-        return str(value)
-
-def safe_int(value: str) -> Optional[int]:
-    """Безопасное преобразование в int"""
-    try:
-        return int(value)
-    except:
-        return None
-
-def get_price_category(price_str: str) -> str:
-    """Определяет категорию цены"""
-    try:
-        price = int(price_str)
-        if price <= 500000:
-            return "#До500тыс"
-        elif price <= 1000000:
-            return "#До1млн"
-        elif price <= 1500000:
-            return "#До1_5млн"
-        elif price <= 2000000:
-            return "#До2млн"
-        elif price <= 3000000:
-            return "#До3млн"
-        elif price <= 5000000:
-            return "#До5млн"
-        else:
-            return "#Выше5млн"
-    except (ValueError, TypeError):
-        return ""
-
-def is_subscribed_status(status: str) -> bool:
-    """Проверяет, является ли статус подпиской"""
-    return status not in ("left", "kicked")
-
-async def check_subscription(user_id: int) -> bool:
-    """Проверяет подписку пользователя в канале"""
-    try:
-        member = await bot.get_chat_member(CHANNEL_ID, user_id)
-        is_subscribed = is_subscribed_status(member.status)
-        logger.info(f"User {user_id} subscription check: status={member.status}, subscribed={is_subscribed}")
-        return is_subscribed
-    except Exception as e:
-        logger.exception(f"Ошибка при проверке подписки для {user_id}: {e}")
-        return False
-
-# ✅ КЛАВИАТУРЫ
-def make_start_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("Продать", callback_data="start:sell"))
-    kb.add(InlineKeyboardButton("Купить", callback_data="start:buy"))
-    return kb
-
-def make_subscribe_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("Подписаться", url="https://t.me/goodbiz54"))
-    kb.add(InlineKeyboardButton("Проверить подписку", callback_data="check_sub"))
-    return kb
-
-def make_ready_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("Информацию подготовил(а)", callback_data="info:ready"))
-    return kb
-
-def make_back_restart_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("◀️ Назад", callback_data="nav:back"),
-        InlineKeyboardButton("🔄 Начать сначала", callback_data="nav:restart")
-    )
-    return kb
-
-def make_restart_only_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("🔄 Начать сначала", callback_data="nav:restart"))
-    return kb
-
-def make_skip_back_restart_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("⏭️ Пропустить", callback_data="sell:skip_current"))
-    kb.add(
-        InlineKeyboardButton("◀️ Назад", callback_data="nav:back"),
-        InlineKeyboardButton("🔄 Начать сначала", callback_data="nav:restart")
-    )
-    return kb
-
-def make_done_back_restart_keyboard(done_callback: str) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(InlineKeyboardButton("✅ Готово", callback_data=done_callback))
-    kb.add(
-        InlineKeyboardButton("◀️ Назад", callback_data="nav:back"),
-        InlineKeyboardButton("🔄 Начать сначала", callback_data="nav:restart")
-    )
-    return kb
-
-def make_categories_keyboard(prefix="cat") -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    for i in range(1, 9):
-        cat_name = CATEGORIES.get(str(i), f"Категория {i}")
-        kb.insert(InlineKeyboardButton(cat_name, callback_data=f"{prefix}:{i}"))
-    return kb
-
-def make_confirm_agent_keyboard() -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("Да", callback_data="sell:agree_agent"),
-        InlineKeyboardButton("Нет", callback_data="sell:no_agent")
-    )
-    return kb
-
-def make_mod_inline(local_id: str) -> InlineKeyboardMarkup:
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ Опубликовать", callback_data=f"mod:publish:{local_id}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"mod:reject:{local_id}")
-    )
-    return kb
-
 # =======================
 # Команды
 # =======================
 
 
-@dp.message_handler(commands=["start"])
-async def cmd_start(message: types.Message):
-    """
-    Начальный экран с поддержкой реферальных ссылок.
-    Формат: /start ref_USER_ID
-    """
-    try:
-        user_id = message.from_user.id
-        args = message.get_args()
+# ✅ ИСПРАВЛЕННЫЙ обработчик /start с реферальной системой
 
-        # ✅ УБИРАЕМ КНОПКИ С КЛАВИАТУРЫ
-        await message.answer(
-            "Проверка рефералов...",
-            reply_markup=ReplyKeyboardRemove()
-        )
 
-        # ✅ Обработка реферальной ссылки
-        if args and args.startswith("ref_"):
-            referrer_id = args.replace("ref_", "")
-            try:
-                referrer_id = int(referrer_id)
 
-                if referrer_id == user_id:
-                    await message.answer(
-                        "Вы не можете пригласить сами себя! 😄",
-                        reply_markup=make_start_keyboard()
-                    )
-                    return  # ✅ ДОБАВЛЕНО: выход после обработки
-                referral_data = await redis_client.redis_client.keys('referral_data')
-                
-                if f'referral_data_{user_id}' in referral_data:
-                    await message.answer(
-                        "Вы уже помогли кому-то получить бонус! 🎁\n\n"
-                        "Хотите разместить своё объявление?",
-                        reply_markup=make_start_keyboard()
-                    )
-                    return  # ✅ ДОБАВЛЕНО: выход после обработки
 
-                subscribed = await check_subscription(user_id)
-                if not subscribed:
-                    await message.answer(
-                        "❌ Чтобы помочь другу, сначала подпишитесь на канал!\n\n"
-                        "После подписки нажмите /start ещё раз.",
-                        reply_markup=make_subscribe_keyboard()
-                    )
-                    return  # ✅ ДОБАВЛЕНО: выход после обработки
+@dp.message_handler(commands=['start'])
+async def cmd_start(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    args = message.get_args()
 
-                # ✅ Регистрируем реферальную связь
-                await redis_client.redis_client.set(
-                    f'referral_data_{user_id}',
-                    json.dumps(
-                        {"invited_by": referrer_id}
-                    )
-                )
-                # referral_data[user_id] = {"invited_by": referrer_id}
+    # ✅ Обработка реферальной ссылки
+    if args and args.startswith("ref_"):
+        try:
+            referrer_id = int(args.split("_")[1])
 
-                await redis_client.redis_client.rpush(f'referral_invites_{referrer_id}', f'{user_id}')
-                referral_lst = await redis_client.redis_client.get(f'referral_invites_{referrer_id}')
+            # ✅ Проверяем подписку на канал (один раз)
+            is_subscribed = await check_subscription(user_id)
 
-                count = len(referral_lst)
-
-                # ✅ Уведомляем реферера о новом приглашении
-                try:
-                    await bot.send_message(
-                        referrer_id,
-                        f"✅ Ваш друг подписался на канал и нажал START!\n"
-                        f"Приглашено: {count}/5"
-                    )
-
-                    # ✅ Если достигнуто 5 приглашений
-                    if count >= 5:
-                        await bot.send_message(
-                            referrer_id,
-                            "🎉 Поздравляем! Вы пригласили 5 друзей.\n"
-                            "Ваше объявление отправлено на модерацию!"
-                        )
-
-                        try:
-                            state_proxy = dp.current_state(chat=referrer_id, user=referrer_id)
-
-                            if state_proxy is None:
-                                logger.warning(f"⚠️ state_proxy is None для пользователя {referrer_id}")
-                                await bot.send_message(
-                                    referrer_id,
-                                    "Пожалуйста, оставьте контакт для связи (телефон или @username):"
-                                )
-                            else:
-                                user_data = await state_proxy.get_data()
-
-                                if user_data.get("waiting_for_invites"):
-                                    if not user_data.get("contact"):
-                                        await bot.send_message(
-                                            referrer_id,
-                                            "Пожалуйста, оставьте контакт для связи (телефон или @username):"
-                                        )
-                                        await state_proxy.set_state(SellStates.SELL_CONTACT_AGENT)
-                                    else:
-                                        await finalize_and_send_to_moderation(
-                                            referrer_id,
-                                            state_proxy,
-                                            invited=True
-                                        )
-
-                        except Exception as e:
-                            logger.exception(f"❌ Ошибка при обработке state_proxy для {referrer_id}: {e}")
-                            await bot.send_message(
-                                referrer_id,
-                                "Произошла ошибка при обновлении статуса. Попробуйте позже."
-                            )
-
-                except Exception as e:
-                    logger.exception(f"❌ Не удалось уведомить реферера {referrer_id}: {e}")
-
-                # ✅ Отправляем сообщение новому пользователю
+            if not is_subscribed:
                 await message.answer(
-                    "🎉 Спасибо! Вы помогли другу получить бонус!\n\n"
-                    "Теперь вы можете:\n"
-                    "• Продать свой бизнес\n"
-                    "• Найти готовый бизнес для покупки",
+                    f"❌ Сначала подпишитесь на канал: https://t.me/{CHANNEL_USERNAME}\n"
+                    f"После подписки нажмите /start снова с той же ссылкой"
+                )
+                return
+
+            # ✅ Получаем текущий список приглашений
+            invites_key = f'referral_invites_{referrer_id}'
+            invites_data = await redis_client.redis_client.lrange(invites_key, 0, -1)
+
+            # ✅ Проверяем, не добавлен ли уже этот пользователь
+            if user_id in invites_data:
+                await message.answer(
+                    "✅ Вы уже учтены в приглашениях!\n\n"
+                    "Добро пожаловать! Выберите действие:",
                     reply_markup=make_start_keyboard()
                 )
-                return  # ✅ ДОБАВЛЕНО: выход после обработки реферальной ссылки
+                return
 
-            except ValueError:
-                logger.warning(f"❌ Некорректный ID реферера: {args}")
-                pass  # Продолжаем к обычному старту
+            # ✅ Добавляем пользователя в список
+            count = await redis_client.redis_client.rpush(invites_key, f'{user_id}')
 
-        # ✅ Обычный старт (без реферальной ссылки)
-        kb = make_start_keyboard()
+            # ✅ Проверяем, ждет ли пригласивший приглашений
+            referrer_state = dp.current_state(chat=referrer_id, user=referrer_id)
+            referrer_data = await referrer_state.get_data()
+
+            waiting_for_invites = referrer_data.get("waiting_for_invites", False)
+
+            # ✅ Уведомляем пригласившего ТОЛЬКО если он ждет
+            if waiting_for_invites:
+                await bot.send_message(
+                    referrer_id,
+                    f"✅ Ваш друг подписался на канал!\n"
+                    f"Приглашено: {count}/5"
+                )
+
+                # ✅ Если достигнут порог — автоматически отправляем на модерацию
+                if count >= 5:
+                    await bot.send_message(
+                        referrer_id,
+                        "🎉 Поздравляем! 5 друзей подписались.\n"
+                        "Ваше объявление автоматически отправлено на модерацию!"
+                    )
+                    await finalize_and_send_to_moderation(referrer_id, referrer_state, invited=True)
+
+            # ✅ Благодарим пользователя
+            await message.answer(
+                "✅ Спасибо за подписку!\n\n"
+                "Добро пожаловать! Выберите действие:",
+                reply_markup=make_start_keyboard()
+            )
+            return
+
+        except ValueError:
+            logger.error(f"Неверный формат реферальной ссылки: {args}")
+        except Exception as e:
+            logger.exception(f"Ошибка обработки реферальной ссылки: {e}")
+
+        # ✅ При ошибке показываем главное меню
         await message.answer(
-            "Рады приветствовать вас! Вы хотите продать или купить бизнес?",
-            reply_markup=kb
+            "Произошла ошибка. Попробуйте позже.\n\n"
+            "Добро пожаловать! Выберите действие:",
+            reply_markup=make_start_keyboard()
         )
+        return
 
-    except Exception as e:
-        logger.exception("Ошибка в /start: %s", e)
-        await message.reply("Произошла ошибка при обработке /start.")
-
-@dp.message_handler(commands=["reset"])
-async def cmd_reset(message: types.Message, state: FSMContext):
-    """
-    Сброс FSM и данных.
-    """
-    try:
-        await state.finish()
-        await message.answer("Данные сброшены. Вы можете начать заново /start.")
-    except Exception as e:
-        logger.exception("Ошибка /reset: %s", e)
-        await message.reply("Не удалось сбросить данные.")
-
-
+    # ✅ Обычный /start (без реферальной ссылки)
+    await message.answer(
+        "Добро пожаловать! Выберите действие:",
+        reply_markup=make_start_keyboard()
+    )
 # =======================
 # Обработчики навигации: Назад Начать сначала
 # =======================
-
 
 @dp.callback_query_handler(lambda c: c.data == "nav:back", state="*")
 async def nav_back_handler(callback_query: types.CallbackQuery, state: FSMContext):
@@ -1132,126 +913,122 @@ async def sell_no_agent(callback_query: types.CallbackQuery, state: FSMContext):
 
 
 # ✅ НОВЫЙ обработчик: после получения контакта предлагаем пригласить друзей
-@dp.message_handler(state=SellStates.SELL_CONTACT_AGENT, content_types=types.ContentTypes.TEXT)
-async def sell_contact_agent_received(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    await state.update_data(contact=message.text.strip())
-
-    # Проверяем, согласился ли на агентство
-    if data.get("with_agent"):
-        # Путь с агентством: предлагаем скидку
-        await message.answer(
-            "Мы предоставим скидку 20% на нашу комиссию, если вы пригласите 5 друзей в канал.",
-            reply_markup=make_agent_discount_keyboard()
-        )
-    else:
-        # ✅ ИСПРАВЛЕНО: путь без посредничества - предлагаем поддержать канал
-        await message.answer(
-            "Очень жаль! Но мы всё равно разместим ваше объявление бесплатно, "
-            "вам всего лишь нужно пригласить 5 друзей в наш канал. Согласны?",
-            reply_markup=make_noagent_keyboard()
-        )
+# @dp.message_handler(state=SellStates.SELL_CONTACT_AGENT, content_types=types.ContentTypes.TEXT)
+# async def sell_contact_agent_received(message: types.Message, state: FSMContext):
+#     data = await state.get_data()
+#     await state.update_data(contact=message.text.strip())
+#
+#     # Проверяем, согласился ли на агентство
+#     if data.get("with_agent"):
+#         # Путь с агентством: предлагаем скидку
+#         await message.answer(
+#             "Мы предоставим скидку 20% на нашу комиссию, если вы пригласите 5 друзей в канал.",
+#             reply_markup=make_agent_discount_keyboard()
+#         )
+#     else:
+#         # ✅ ИСПРАВЛЕНО: путь без посредничества - предлагаем поддержать канал
+#         await message.answer(
+#             "Очень жаль! Но мы всё равно разместим ваше объявление бесплатно, "
+#             "вам всего лишь нужно пригласить 5 друзей в наш канал. Согласны?",
+#             reply_markup=make_noagent_keyboard()
+#         )
 
 # noagent flow: пользователь согласился поддержать
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("noagent:"), state=SellStates)
-async def noagent_choice(callback_query: types.CallbackQuery, state: FSMContext):
-    action = callback_query.data.split(":")[1]
-    user_id = callback_query.from_user.id
+# @dp.callback_query_handler(lambda c: c.data and c.data.startswith("noagent:"), state=SellStates)
+# async def noagent_choice(callback_query: types.CallbackQuery, state: FSMContext):
+#     action = callback_query.data.split(":")[1]
+#     user_id = callback_query.from_user.id
+#
+#     if action == "will_invite":
+#         # ✅ Генерируем ссылки
+#         channel_username = "goodbiz54"
+#         bot_username = (await bot.get_me()).username
+#
+#         channel_link = f"https://t.me/{channel_username}"
+#         referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+#
+#         invite_text = (
+#             f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
+#             f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
+#             f"👉 Канал: {channel_link}\n"
+#             f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
+#         )
+#
+#         await state.update_data(
+#             invite_text=invite_text,
+#             invited=True,
+#             discount=False,
+#             referral_link=referral_link,
+#             channel_link=channel_link,
+#             waiting_for_invites=True,  # ✅ ВАЖНО: устанавливаем флаг ожидания
+#             trust_agent_invites=False  # ✅ Не доверяем на слово
+#         )
+#
+#         await bot.send_message(
+#             user_id,
+#             f"📨 Отправьте эти ссылки 5 друзьям:\n\n{invite_text}\n\n"
+#             f"Приглашено: 0/5\n\n"
+#             f"Как только 5 друзей подпишутся на канал и запустят бота, "
+#             f"объявление автоматически отправится на модерацию.",
+#             reply_markup=make_agent_invite_keyboard()
+#         )
+#         await callback_query.answer()
+#
+#     else:  # noagent:decline
+#         # ✅ Пользователь отказался от приглашений
+#         await state.update_data(invited=False, discount=False, rejected_all=True)
+#         await finalize_and_send_to_moderation(user_id, state, invited=False)
+#         await callback_query.answer("Хорошо. Объявление отправлено на модерацию.")
 
-    if action == "will_invite":
-        # ✅ ИСПРАВЛЕНО: генерируем ссылку на КАНАЛ + реферальную ссылку
-        channel_username = "goodbiz54"
-        bot_username = (await bot.get_me()).username
-
-        channel_link = f"https://t.me/{channel_username}"
-        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-
-        invite_text = (
-            f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
-            f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
-            f"👉 Канал: {channel_link}\n"
-            f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
-        )
-
-        await state.update_data(
-            invite_text=invite_text,
-            invited=True,
-            discount=False,
-            referral_link=referral_link,
-            channel_link=channel_link,
-            waiting_for_invites=True
-        )
-
-        # Инициализируем счётчик приглашений
-        # if user_id not in referral_invites:
-        #     referral_invites[user_id] = []
-
-        await bot.send_message(
-            user_id,
-            f"📨 Отправьте эти ссылки 5 друзьям:\n\n{invite_text}\n\n"
-            f"Приглашено: 0/5",
-            reply_markup=make_agent_invite_keyboard()
-        )
-        await callback_query.answer()
-
-    else:  # noagent:decline
-        # ✅ ИСПРАВЛЕНО: пользователь отказался от приглашений
-        await state.update_data(invited=False, discount=False)
-        await state.update_data(rejected_all=True)
-        await finalize_and_send_to_moderation(user_id, state, invited=False)
-        await callback_query.answer("Хорошо. Объявление отправлено на модерацию.")
 # Обработка выбора агент:will_invite / agent:no_discount
-@dp.callback_query_handler(lambda c: c.data and c.data.startswith("agent:"), state=SellStates)
-async def agent_choice(callback_query: types.CallbackQuery, state: FSMContext):
-    action = callback_query.data.split(":")[1]
-    user_id = callback_query.from_user.id
-
-    if action == "will_invite":
-        channel_username = "goodbiz54"
-        bot_username = (await bot.get_me()).username
-
-        channel_link = f"https://t.me/{channel_username}"
-        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-
-        invite_text = (
-            f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
-            f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
-            f"👉 Канал: {channel_link}\n"
-            f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
-        )
-
-        await state.update_data(
-            invite_text=invite_text,
-            discount=True,
-            invited=True,
-            referral_link=referral_link,
-            channel_link=channel_link,
-            # КЛЮЧЕВОЕ: в агентской ветке верим на слово, не считаем фактические приглашения
-            waiting_for_invites=False,
-            trust_agent_invites=True
-        )
-
-        await bot.send_message(
-            user_id,
-            f"📨 Отправьте эти ссылки друзьям:\n\n{invite_text}\n\n"
-            f"Когда будете готовы — нажмите «Отправил».",
-            reply_markup=make_agent_invite_keyboard()
-        )
-        await callback_query.answer()
-
-    elif action == "no_discount":
-        await state.update_data(discount=False, invited=False)
-        # Перед отправкой — проверим контакт (если нужен), иначе отправим сразу
-        data = await state.get_data()
-        if not data.get("contact"):
-            await SellStates.SELL_CONTACT_AGENT.set()
-            await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи (телефон или @username):")
-        else:
-            await finalize_and_send_to_moderation(user_id, state, invited=False)
-        await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
-
-# noagent flow: пользователь согласился поддержать
-
+# @dp.callback_query_handler(lambda c: c.data and c.data.startswith("agent:"), state=SellStates)
+# async def agent_choice(callback_query: types.CallbackQuery, state: FSMContext):
+#     action = callback_query.data.split(":")[1]
+#     user_id = callback_query.from_user.id
+#
+#     if action == "will_invite":
+#         channel_username = "goodbiz54"
+#         bot_username = (await bot.get_me()).username
+#
+#         channel_link = f"https://t.me/{channel_username}"
+#         referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+#
+#         invite_text = (
+#             f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
+#             f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
+#             f"👉 Канал: {channel_link}\n"
+#             f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
+#         )
+#
+#         await state.update_data(
+#             invite_text=invite_text,
+#             discount=True,
+#             invited=True,
+#             referral_link=referral_link,
+#             channel_link=channel_link,
+#             waiting_for_invites=False,  # ✅ НЕ ждем фактических приглашений
+#             trust_agent_invites=True  # ✅ Доверяем на слово
+#         )
+#
+#         await bot.send_message(
+#             user_id,
+#             f"📨 Отправьте эти ссылки друзьям:\n\n{invite_text}\n\n"
+#             f"Когда будете готовы — нажмите «Отправил».",
+#             reply_markup=make_agent_invite_keyboard()
+#         )
+#         await callback_query.answer()
+#
+#     elif action == "no_discount":
+#         await state.update_data(discount=False, invited=False)
+#         data = await state.get_data()
+#
+#         if not data.get("contact"):
+#             await SellStates.SELL_CONTACT_AGENT.set()
+#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи (телефон или @username):")
+#         else:
+#             await finalize_and_send_to_moderation(user_id, state, invited=False)
+#
+#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
 
 # Пользователь нажал "Скопировать" приглашение
 
@@ -1298,51 +1075,56 @@ async def invite_copy(callback_query: types.CallbackQuery, state: FSMContext):
     await callback_query.answer("✅ Ссылки отправлены! Скопируйте и отправьте 5 друзьям!", show_alert=False)
 
 # Пользователь нажал "Отправил" приглашение
-@dp.callback_query_handler(lambda c: c.data == "invite:sent", state=SellStates)
-async def invite_sent(callback_query: types.CallbackQuery, state: FSMContext):
-    user_id = callback_query.from_user.id
-    data = await state.get_data()
-
-    # Если агентская ветка со скидкой — доверяем на слово и отправляем сразу
-    if data.get("with_agent") and data.get("discount") and data.get("trust_agent_invites"):
-        # Убедимся, что контакт есть, иначе попросим
-        if not data.get("contact"):
-            await SellStates.SELL_CONTACT_AGENT.set()
-            await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи (телефон или @username):")
-            await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
-            return
-
-        await state.update_data(invited=True)
-        await finalize_and_send_to_moderation(user_id, state, invited=True)
-        await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
-        return
-
-    # Иначе (ветка без посредничества) — работаем по старой логике с фактическим счётом
-    if data.get("waiting_for_invites"):
-        referral_invites = await redis_client.redis_client.get(f'referral_invites_{user_id}')
-        # count = len(referral_invites.get(user_id, []))
-        count = len(referral_invites)
-        if count < 5:
-            await bot.send_message(
-                user_id,
-                f"⏳ Пока приглашено только {count}/5 друзей.\n"
-                f"Отправьте ссылку ещё {5 - count} друзьям.\n\n"
-                f"Как только 5 друзей подпишутся на канал и запустят бота, объявление автоматически отправится на модерацию."
-            )
-            await callback_query.answer(f"Приглашено: {count}/5")
-            return
-
-    # Если порог достигнут или эта ветка не требует подсчёта — отправляем
-    await state.update_data(invited=True)
-    # Убедимся, что контакт есть
-    if not data.get("contact"):
-        await SellStates.SELL_CONTACT_AGENT.set()
-        await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи (телефон или @username):")
-        await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
-        return
-
-    await finalize_and_send_to_moderation(user_id, state, invited=True)
-    await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
+# @dp.callback_query_handler(lambda c: c.data == "invite:sent", state=SellStates)
+# async def invite_sent(callback_query: types.CallbackQuery, state: FSMContext):
+#     user_id = callback_query.from_user.id
+#     data = await state.get_data()
+#
+#     # ✅ Агентская ветка — доверяем на слово
+#     if data.get("with_agent") and data.get("discount") and data.get("trust_agent_invites"):
+#         if not data.get("contact"):
+#             await SellStates.SELL_CONTACT_AGENT.set()
+#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи:")
+#             await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
+#             return
+#
+#         await state.update_data(invited=True)
+#         await finalize_and_send_to_moderation(user_id, state, invited=True)
+#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
+#         return
+#
+#     # ✅ Ветка без посредничества — проверяем фактические приглашения
+#     if data.get("waiting_for_invites"):
+#         invites_key = f'referral_invites_{user_id}'
+#         invites_data = await redis_client.redis_client.lrange(invites_key, 0, -1)
+#         count = len(invites_data)
+#         # ✅ Проверяем количество
+#         if count < 5:
+#             await bot.send_message(
+#                 user_id,
+#                 f"⏳ Пока приглашено только {count}/5 друзей.\n"
+#                 f"Отправьте ссылку ещё {5 - count} друзьям.\n\n"
+#                 f"Как только 5 друзей подпишутся на канал и запустят бота, "
+#                 f"объявление автоматически отправится на модерацию."
+#             )
+#             await callback_query.answer(f"Приглашено: {count}/5")
+#             return
+#
+#         # ✅ Порог достигнут
+#         await state.update_data(invited=True, waiting_for_invites=False)
+#
+#         if not data.get("contact"):
+#             await SellStates.SELL_CONTACT_AGENT.set()
+#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи:")
+#             await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
+#             return
+#
+#         await finalize_and_send_to_moderation(user_id, state, invited=True)
+#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
+#         return
+#
+#     # ✅ Если не ждет приглашений — отправляем сразу
+#     await callback_query.answer("Ошибка: состояние не определено")
 
 # и после нужно запросить контакт (если не указан) и отправить в модерацию:
 @dp.message_handler(state=SellStates, content_types=types.ContentTypes.TEXT)
@@ -1363,18 +1145,10 @@ async def generic_sell_text_handler(message: types.Message, state: FSMContext):
 
 
 async def finalize_and_send_to_moderation(user_id: int, state: FSMContext, invited: bool = False):
-    """
-    Финализирует объявление и отправляет на модерацию.
-    ✅ Все данные сохраняются в БД
-    """
     session = None
     try:
         data = await state.get_data()
         local_id = uuid.uuid4()
-
-        # ✅ СОХРАНЯЕМ В БД (асинхронно)
-        # session = SessionLocal()
-        # try:
 
         await redis_client.redis_client.set(
             f'submission_{local_id}',
@@ -1387,17 +1161,6 @@ async def finalize_and_send_to_moderation(user_id: int, state: FSMContext, invit
                 'status': 'pending'
             })
         )
-        # except Exception as db_error:
-        #     session.rollback()
-        #     logger.exception(f"❌ Ошибка сохранения в БД: {db_error}")
-        #     await bot.send_message(
-        #         user_id,
-        #         "❌ Ошибка при сохранении объявления. Попробуйте позже."
-        #     )
-        #     return
-        # finally:
-        #     if session is not None:
-        #         session.close()
 
         # ✅ СОХРАНЯЕМ В ПАМЯТИ (для быстрого доступа модератора)
         await redis_client.redis_client.set(
@@ -1585,18 +1348,7 @@ async def mod_publish(callback_query: types.CallbackQuery):
         if not submission:
             await callback_query.answer("❌ Заявка не найдена или уже обработана.")
             return
-
-
-
-
-        # ✅ Получаем сессию БД
-        # session = SessionLocal()  # ✅ Теперь session имеет правильный тип
         db_submission = await redis_client.redis_client.get(f'submission_{local_id}')
-
-            # ✅ Обновляем статус в БД
-            # db_submission = session.query(Submission).filter(
-            #     Submission.id == local_id
-            # ).first()
 
         if not db_submission:
             await callback_query.answer("❌ Заявка не найдена в БД")
@@ -1778,16 +1530,6 @@ async def buy_when_contact_handler(message: types.Message, state: FSMContext):
 
     # Завершаем сценарий
     await state.finish()
-# =======================
-# Запуск бота
-# =======================
-
-
-
-# =======================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# =======================
-
 
 def build_sell_preview(data: Dict[str, Any]) -> str:
     """Формирует текст предпросмотра объявления на продажу"""
@@ -1798,27 +1540,67 @@ def build_sell_preview(data: Dict[str, Any]) -> str:
     category = CATEGORIES.get(data.get("category_idx", ""), "")
 
     text = (
-        f"<b>📌 {title}</b>\n\n"
-        f"💰 <b>Чистая прибыль:</b> {profit} ₽\n"
-        f"💵 <b>Стоимость:</b> {price} ₽\n"
+        f"🔥 <b>{title}</b>\n\n"
+        f"💰 <b>Прибыль:</b> {profit} ₽/мес\n"
+        f"💵 <b>Цена:</b> {price} ₽\n"
         f"📍 <b>Город:</b> {city}\n"
-        f"🏷️ <b>Категория:</b> {category}\n"
+        f"🏷 <b>Категория:</b> {category}\n"
     )
 
+    # Дополнительные блоки с отступами
+    sections = []
+
     if data.get("marketing"):
-        text += f"\n📢 <b>Маркетинг:</b> {escape_html(data.get('marketing'))}\n"
+        sections.append(f"📢 <b>Маркетинг</b>\n{escape_html(data.get('marketing'))}")
 
     if data.get("employees"):
-        text += f"\n👥 <b>Сотрудники:</b> {escape_html(data.get('employees'))}\n"
+        sections.append(f"👥 <b>Персонал</b>\n{escape_html(data.get('employees'))}")
 
     if data.get("premises"):
-        text += f"\n🏢 <b>Помещение:</b> {escape_html(data.get('premises'))}\n"
+        sections.append(f"🏢 <b>Помещение</b>\n{escape_html(data.get('premises'))}")
 
     if data.get("included"):
-        text += f"\n📦 <b>Входит в стоимость:</b> {escape_html(data.get('included'))}\n"
+        sections.append(f"✅ <b>В стоимость входит</b>\n{escape_html(data.get('included'))}")
 
     if data.get("extra"):
-        text += f"\n📝 <b>Доп. информация:</b> {escape_html(data.get('extra'))}\n"
+        sections.append(f"ℹ️ <b>Дополнительно</b>\n{escape_html(data.get('extra'))}")
+
+    # ✅ ДОБАВЛЯЕМ КОНТАКТ ДЛЯ СВЯЗИ
+    contact = data.get("contact", "")
+    with_agent = data.get("with_agent", False)
+
+    if with_agent:
+        # Если согласен на посредничество - показываем контакт агента
+        sections.append(f"📞 <b>Контакт для связи</b>\n{AGENT_CONTACT}")
+    elif contact:
+        # Если не согласен на посредничество - показываем контакт пользователя
+        sections.append(f"📞 <b>Контакт для связи</b>\n{escape_html(contact)}")
+
+    if sections:
+        text += "\n" + "─" * 25 + "\n\n"
+        text += "\n\n".join(sections)
+
+    # Хэштеги
+    text += "\n\n" + "─" * 25 + "\n"
+
+    city_tag = city.replace(" ", "")
+    text += f"#{city_tag} "
+
+    price_num = safe_int(data.get("price", "0"))
+    if price_num:
+        if price_num < 1_000_000:
+            text += "#до1млн "
+        elif price_num < 2_000_000:
+            text += "#до2млн "
+        elif price_num < 5_000_000:
+            text += "#до5млн "
+        elif price_num < 10_000_000:
+            text += "#до10млн "
+        else:
+            text += "#более10млн "
+
+    category_tag = category.replace(" ", "").replace("/", "")
+    text += f"#{category_tag}"
 
     return text
 
@@ -1843,36 +1625,7 @@ def build_buy_preview(data: Dict[str, Any]) -> str:
 
     return text
 
-
-def make_agent_discount_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для выбора: согласиться на скидку или нет"""
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ Согласен на скидку", callback_data="agent:will_invite"),
-        InlineKeyboardButton("❌ Без скидки", callback_data="agent:no_discount")
-    )
-    return kb
-
-
-def make_noagent_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для выбора: пригласить друзей или отказаться"""
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("✅ Согласен пригласить", callback_data="noagent:will_invite"),
-        InlineKeyboardButton("❌ Отказываюсь", callback_data="noagent:decline")
-    )
-    return kb
-
-
-def make_agent_invite_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для отправки приглашений"""
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton("📋 Скопировать", callback_data="invite:copy"),
-        InlineKeyboardButton("✅ Отправил", callback_data="invite:sent")
-    )
-    return kb
-
+# Найдите функцию publish_sell и замените её на:
 
 async def publish_sell(submission: dict):
     """
@@ -1884,41 +1637,51 @@ async def publish_sell(submission: dict):
         # Формируем текст для публикации
         preview_text = build_sell_preview(data)
 
-        # Отправляем медиа (если есть)
+        # Получаем медиа
         photos = data.get("photos", [])
         video = data.get("video")
         video_note = data.get("video_note")
+        table = data.get("table")
 
+        # 1. Сначала отправляем медиагруппу (БЕЗ текста)
         if photos or video:
             media_group = []
+
+            # Добавляем фото (максимум 10)
             for photo_id in photos[:10]:
                 media_group.append(InputMediaPhoto(media=photo_id))
+
+            # Добавляем видео, если есть место
             if video and len(media_group) < 10:
                 media_group.append(InputMediaVideo(media=video))
 
             if media_group:
                 await bot.send_media_group(CHANNEL_ID, media_group)
 
+        # 2. Отправляем видеокружочек (если есть)
         if video_note:
             await bot.send_video_note(CHANNEL_ID, video_note)
 
-        # Отправляем текст объявления
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📞 Связаться с продавцом", url="https://t.me/goodbiz54"))
-
+        # 3. Отправляем текст объявления
         await bot.send_message(
             CHANNEL_ID,
             preview_text,
-            reply_markup=kb,
             parse_mode=ParseMode.HTML
         )
+
+        # 4. Отправляем финансовую модель (если есть)
+        if table:
+            await bot.send_document(
+                CHANNEL_ID,
+                table,
+                caption="📊 Финансовая модель"
+            )
 
         logger.info(f"✅ Объявление опубликовано в канал {CHANNEL_ID}")
 
     except Exception as e:
         logger.exception(f"❌ Ошибка при публикации объявления: {e}")
         raise
-
 
 # async def on_startup(dispatcher):
 #     await init_db()
