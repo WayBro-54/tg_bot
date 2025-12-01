@@ -581,7 +581,6 @@ async def send_state_question(user_id: int, state_name: str, state: FSMContext):
 # =======================
 # Обработка вопросов продажи (по состояниям)
 # =======================
-
 @dp.message_handler(state=SellStates.SELL_TITLE, content_types=types.ContentTypes.TEXT)
 async def sell_title(message: types.Message, state: FSMContext):
     await state.update_data(title=message.text.strip())
@@ -623,7 +622,6 @@ async def process_marketing_text(message: types.Message, state: FSMContext):
 
 
 # ✅ Обработка кнопки "Пропустить"
-
 @dp.message_handler(state=SellStates.SELL_EMPLOYEES, content_types=types.ContentTypes.TEXT)
 async def sell_employees(message: types.Message, state: FSMContext):
     await state.update_data(employees=message.text.strip())
@@ -912,125 +910,6 @@ async def sell_no_agent(callback_query: types.CallbackQuery, state: FSMContext):
     await callback_query.answer()
 
 
-# ✅ НОВЫЙ обработчик: после получения контакта предлагаем пригласить друзей
-# @dp.message_handler(state=SellStates.SELL_CONTACT_AGENT, content_types=types.ContentTypes.TEXT)
-# async def sell_contact_agent_received(message: types.Message, state: FSMContext):
-#     data = await state.get_data()
-#     await state.update_data(contact=message.text.strip())
-#
-#     # Проверяем, согласился ли на агентство
-#     if data.get("with_agent"):
-#         # Путь с агентством: предлагаем скидку
-#         await message.answer(
-#             "Мы предоставим скидку 20% на нашу комиссию, если вы пригласите 5 друзей в канал.",
-#             reply_markup=make_agent_discount_keyboard()
-#         )
-#     else:
-#         # ✅ ИСПРАВЛЕНО: путь без посредничества - предлагаем поддержать канал
-#         await message.answer(
-#             "Очень жаль! Но мы всё равно разместим ваше объявление бесплатно, "
-#             "вам всего лишь нужно пригласить 5 друзей в наш канал. Согласны?",
-#             reply_markup=make_noagent_keyboard()
-#         )
-
-# noagent flow: пользователь согласился поддержать
-# @dp.callback_query_handler(lambda c: c.data and c.data.startswith("noagent:"), state=SellStates)
-# async def noagent_choice(callback_query: types.CallbackQuery, state: FSMContext):
-#     action = callback_query.data.split(":")[1]
-#     user_id = callback_query.from_user.id
-#
-#     if action == "will_invite":
-#         # ✅ Генерируем ссылки
-#         channel_username = "goodbiz54"
-#         bot_username = (await bot.get_me()).username
-#
-#         channel_link = f"https://t.me/{channel_username}"
-#         referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-#
-#         invite_text = (
-#             f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
-#             f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
-#             f"👉 Канал: {channel_link}\n"
-#             f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
-#         )
-#
-#         await state.update_data(
-#             invite_text=invite_text,
-#             invited=True,
-#             discount=False,
-#             referral_link=referral_link,
-#             channel_link=channel_link,
-#             waiting_for_invites=True,  # ✅ ВАЖНО: устанавливаем флаг ожидания
-#             trust_agent_invites=False  # ✅ Не доверяем на слово
-#         )
-#
-#         await bot.send_message(
-#             user_id,
-#             f"📨 Отправьте эти ссылки 5 друзьям:\n\n{invite_text}\n\n"
-#             f"Приглашено: 0/5\n\n"
-#             f"Как только 5 друзей подпишутся на канал и запустят бота, "
-#             f"объявление автоматически отправится на модерацию.",
-#             reply_markup=make_agent_invite_keyboard()
-#         )
-#         await callback_query.answer()
-#
-#     else:  # noagent:decline
-#         # ✅ Пользователь отказался от приглашений
-#         await state.update_data(invited=False, discount=False, rejected_all=True)
-#         await finalize_and_send_to_moderation(user_id, state, invited=False)
-#         await callback_query.answer("Хорошо. Объявление отправлено на модерацию.")
-
-# Обработка выбора агент:will_invite / agent:no_discount
-# @dp.callback_query_handler(lambda c: c.data and c.data.startswith("agent:"), state=SellStates)
-# async def agent_choice(callback_query: types.CallbackQuery, state: FSMContext):
-#     action = callback_query.data.split(":")[1]
-#     user_id = callback_query.from_user.id
-#
-#     if action == "will_invite":
-#         channel_username = "goodbiz54"
-#         bot_username = (await bot.get_me()).username
-#
-#         channel_link = f"https://t.me/{channel_username}"
-#         referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-#
-#         invite_text = (
-#             f"Привет! Появился новый ТГ канал, тут продают и покупают готовый бизнес. "
-#             f"Я свой туда выставил. Подпишись пожалуйста, хочу бонус забрать 🎁\n\n"
-#             f"👉 Канал: {channel_link}\n"
-#             f"👉 Перейди в бота и нажми 'Старт': {referral_link}"
-#         )
-#
-#         await state.update_data(
-#             invite_text=invite_text,
-#             discount=True,
-#             invited=True,
-#             referral_link=referral_link,
-#             channel_link=channel_link,
-#             waiting_for_invites=False,  # ✅ НЕ ждем фактических приглашений
-#             trust_agent_invites=True  # ✅ Доверяем на слово
-#         )
-#
-#         await bot.send_message(
-#             user_id,
-#             f"📨 Отправьте эти ссылки друзьям:\n\n{invite_text}\n\n"
-#             f"Когда будете готовы — нажмите «Отправил».",
-#             reply_markup=make_agent_invite_keyboard()
-#         )
-#         await callback_query.answer()
-#
-#     elif action == "no_discount":
-#         await state.update_data(discount=False, invited=False)
-#         data = await state.get_data()
-#
-#         if not data.get("contact"):
-#             await SellStates.SELL_CONTACT_AGENT.set()
-#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи (телефон или @username):")
-#         else:
-#             await finalize_and_send_to_moderation(user_id, state, invited=False)
-#
-#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
-
-# Пользователь нажал "Скопировать" приглашение
 
 # Пользователь нажал "Скопировать" приглашение
 @dp.callback_query_handler(lambda c: c.data == "invite:copy", state=SellStates)
@@ -1073,58 +952,6 @@ async def invite_copy(callback_query: types.CallbackQuery, state: FSMContext):
 
     # Показываем подсказку
     await callback_query.answer("✅ Ссылки отправлены! Скопируйте и отправьте 5 друзьям!", show_alert=False)
-
-# Пользователь нажал "Отправил" приглашение
-# @dp.callback_query_handler(lambda c: c.data == "invite:sent", state=SellStates)
-# async def invite_sent(callback_query: types.CallbackQuery, state: FSMContext):
-#     user_id = callback_query.from_user.id
-#     data = await state.get_data()
-#
-#     # ✅ Агентская ветка — доверяем на слово
-#     if data.get("with_agent") and data.get("discount") and data.get("trust_agent_invites"):
-#         if not data.get("contact"):
-#             await SellStates.SELL_CONTACT_AGENT.set()
-#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи:")
-#             await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
-#             return
-#
-#         await state.update_data(invited=True)
-#         await finalize_and_send_to_moderation(user_id, state, invited=True)
-#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
-#         return
-#
-#     # ✅ Ветка без посредничества — проверяем фактические приглашения
-#     if data.get("waiting_for_invites"):
-#         invites_key = f'referral_invites_{user_id}'
-#         invites_data = await redis_client.redis_client.lrange(invites_key, 0, -1)
-#         count = len(invites_data)
-#         # ✅ Проверяем количество
-#         if count < 5:
-#             await bot.send_message(
-#                 user_id,
-#                 f"⏳ Пока приглашено только {count}/5 друзей.\n"
-#                 f"Отправьте ссылку ещё {5 - count} друзьям.\n\n"
-#                 f"Как только 5 друзей подпишутся на канал и запустят бота, "
-#                 f"объявление автоматически отправится на модерацию."
-#             )
-#             await callback_query.answer(f"Приглашено: {count}/5")
-#             return
-#
-#         # ✅ Порог достигнут
-#         await state.update_data(invited=True, waiting_for_invites=False)
-#
-#         if not data.get("contact"):
-#             await SellStates.SELL_CONTACT_AGENT.set()
-#             await bot.send_message(user_id, "Пожалуйста, оставьте контакт для связи:")
-#             await callback_query.answer("Оставьте контакт, и сразу отправим на модерацию.")
-#             return
-#
-#         await finalize_and_send_to_moderation(user_id, state, invited=True)
-#         await callback_query.answer("Спасибо! Объявление отправлено на модерацию.")
-#         return
-#
-#     # ✅ Если не ждет приглашений — отправляем сразу
-#     await callback_query.answer("Ошибка: состояние не определено")
 
 # и после нужно запросить контакт (если не указан) и отправить в модерацию:
 @dp.message_handler(state=SellStates, content_types=types.ContentTypes.TEXT)
@@ -1683,11 +1510,7 @@ async def publish_sell(submission: dict):
         logger.exception(f"❌ Ошибка при публикации объявления: {e}")
         raise
 
-# async def on_startup(dispatcher):
-#     await init_db()
-
 if __name__ == "__main__":
     executor.start_polling(
         dispatcher=dp,
-        # on_startup=on_startup,
     )
